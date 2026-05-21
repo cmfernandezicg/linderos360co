@@ -1,0 +1,91 @@
+; ---------------------------------------------------------------------------
+; Linderos360CO — metadata.txt
+; Encoding: UTF-8 (sin BOM)
+; ---------------------------------------------------------------------------
+
+[general]
+
+; ── Identificación ─────────────────────────────────────────────────────────
+name=Linderos360CO
+qgisMinimumVersion=3.16
+qgisMaximumVersion=3.99
+
+; ── Versión ────────────────────────────────────────────────────────────────
+version=1.0.0
+
+; ── Autor ──────────────────────────────────────────────────────────────────
+author=Carlos Mario Fernández Barrios
+email=cmfernandezicg@gmail.com
+
+; ── Descripción corta — en inglés, una línea, sin tildes (requisito repositorio QGIS)
+description=Boundary description, cartographic plan and coordinate table generator for Colombian cadastral workflows (IGAC-SNR regulation).
+
+; ── About — técnico pero cercano, en español ───────────────────────────────
+about=Si trabajas en catastro o topografía en Colombia y tienes que generar
+ descripciones técnicas de linderos, ya sabes lo que implica: revisar la norma,
+ calcular coordenadas, armar el texto, hacer el plano... todo a mano o con
+ flujos poco automatizados.
+
+ Linderos360CO hace ese proceso completo desde QGIS. Seleccionas los predios,
+ configuras los campos de tu capa y el complemento genera los tres productos
+ que exige el flujo catastral:
+
+ - Descripción técnica de linderos (.txt): texto normativo con inicio en
+   vértice noroccidental, recorrido en sentido horario, segmentos agrupados
+   por cuadrante (Norte / Este / Sur / Oeste), identificación de colindantes
+   y área en hectáreas (rural) o m² (urbano). Todo según la resolución
+   conjunta IGAC-SNR de catastro multipropósito.
+
+ - Plano cartográfico (.pdf): generado desde una plantilla .qpt con escala
+   automática, mapa de localización OSM, leyenda dinámica y datos del
+   encabezado configurables (empresa, título, elaborado por, logo).
+
+ - Tabla de coordenadas (.xlsx): vértices con coordenadas proyectadas
+   MAGNA-SIRGAS / EPSG:9377, coordenadas geográficas WGS84, distancia y
+   azimut al siguiente vértice, y fila de totales con el perímetro.
+
+ El complemento trabaja en EPSG:9377 internamente sin importar el CRS de
+ tu capa fuente. Funciona con SHP, GPKG, GDB y cualquier formato vectorial
+ que soporte QGIS. También maneja capas con geometría MultiPolygonZ, que
+ es lo que suelen entregar las entidades catastrales colombianas.
+
+ REQUISITO ADICIONAL:
+ Para generar el archivo .xlsx necesitas tener instalado openpyxl. Si no
+ lo tienes, ejecuta esto en la consola Python de QGIS:
+ import subprocess; subprocess.run(['pip', 'install', 'openpyxl', '--break-system-packages'])
+
+; ── Categoría ──────────────────────────────────────────────────────────────
+category=Vector
+
+; ── Etiquetas ──────────────────────────────────────────────────────────────
+tags=catastro, linderos, colombia, igac, snr, predios, descripcion tecnica,
+ boundary, parcel, cadastre, pdf, xlsx, coordenadas, MAGNA-SIRGAS, EPSG:9377,
+ multipropósito, plano cartografico, topografia
+
+; ── URLs — actualizar con el repositorio real una vez creado en GitHub ─────
+homepage=https://github.com/cmfernandezicg/linderos360co
+tracker=https://github.com/cmfernandezicg/linderos360co/issues
+repository=https://github.com/cmfernandezicg/linderos360co
+
+; ── Licencia ───────────────────────────────────────────────────────────────
+license=GPL-2.0
+
+; ── Ícono ──────────────────────────────────────────────────────────────────
+icon=resources/icon.png
+
+; ── Estado ─────────────────────────────────────────────────────────────────
+experimental=False
+deprecated=False
+
+; ── Historial de cambios ───────────────────────────────────────────────────
+changelog=1.0.0
+ Primera versión pública del complemento.
+ - Descripción técnica de linderos (.txt) según resolución conjunta IGAC-SNR.
+ - Plano cartográfico (.pdf) desde plantilla .qpt con variables dinámicas.
+ - Tabla de coordenadas (.xlsx) en MAGNA-SIRGAS y WGS84.
+ - Validación topológica previa al procesamiento (no bloqueante).
+ - Interfaz con pestañas dinámicas — tres módulos activables de forma independiente.
+ - Persistencia de la última configuración usada (QSettings).
+ - Indicador de progreso detallado y log de errores exportable.
+ - Compatible con cualquier CRS de entrada (SHP, GPKG, GDB).
+ - Soporte para geometría MultiPolygonZ.

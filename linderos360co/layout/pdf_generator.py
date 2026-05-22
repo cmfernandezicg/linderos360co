@@ -375,7 +375,7 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
     Returns:
         Ruta absoluta del PDF generado.
     """
-    from linderos_plugin.core.geometry_utils import preparar_vertices_normativos
+    from linderos360co.core.geometry_utils import preparar_vertices_normativos
 
     proyecto  = QgsProject.instance()
     capa      = config["capa"]

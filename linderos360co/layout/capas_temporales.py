@@ -200,7 +200,7 @@ def _crear_capa_colindantes(feature, capa_origen, config: dict) -> QgsVectorLaye
     Etiqueta: campos mapeados (col_nupre/col_fmi) → campos del predio
     como fallback → primer campo string con valor como último recurso.
     """
-    from linderos_plugin.core.colindantes import TOLERANCIA_M
+    from linderos360co.core.colindantes import TOLERANCIA_M
     from qgis.core import QgsFeatureRequest
 
     capa = QgsVectorLayer(

@@ -11,7 +11,7 @@ qgisMinimumVersion=3.16
 qgisMaximumVersion=3.99
 
 ; ── Versión ────────────────────────────────────────────────────────────────
-version=1.0.1
+version=1.1.0
 
 ; ── Autor ──────────────────────────────────────────────────────────────────
 author=Carlos Mario Fernández Barrios
@@ -78,7 +78,7 @@ experimental=False
 deprecated=False
 
 ; ── Historial de cambios ───────────────────────────────────────────────────
-changelog= 1.0.1 - Fix: corrección de imports internos (linderos_plugin → linderos360co) en pdf_generator.py y capas_temporales.py
+changelog=v1.1.0: Soporte de polígonos con anillos interiores en TXT y XLSX
  Primera versión pública del complemento.
  - Descripción técnica de linderos (.txt) según resolución conjunta IGAC-SNR.
  - Plano cartográfico (.pdf) desde plantilla .qpt con variables dinámicas.

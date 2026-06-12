@@ -97,7 +97,8 @@ def asignar_cuadrantes(vertices: list, puntos_corte: dict) -> list:
 
 
 def construir_segmentos(vertices: list, colindantes_por_segmento: dict,
-                        geom: QgsGeometry = None) -> list:
+                        geom: QgsGeometry = None,
+                        offset_num_lindero: int = 0) -> list:
     """
     Construye los segmentos con cuadrante asignado por puntos de corte.
     """
@@ -127,9 +128,9 @@ def construir_segmentos(vertices: list, colindantes_por_segmento: dict,
     return segmentos
 
 
-def agrupar_por_cuadrante(segmentos: list) -> dict:
+def agrupar_por_cuadrante(segmentos: list, offset: int = 0) -> dict:
     grupos   = {c: [] for c in CUADRANTES}
-    contador = 1
+    contador = offset + 1
     for seg in segmentos:
         seg["num_lindero"] = contador
         grupos[seg["cuadrante"]].append(seg)

@@ -1,5 +1,9 @@
 import os
-from .geometry_utils import preparar_vertices_normativos, reproyectar_geometry
+from .geometry_utils import (
+    preparar_vertices_normativos,
+    preparar_anillos_interiores_normativos,
+    reproyectar_geometry,
+)
 from .clasificador import construir_segmentos, agrupar_por_cuadrante, CUADRANTES
 
 # Valores considerados como vacíos/nulos
@@ -109,8 +113,68 @@ def _texto_segmento(seg: dict, marcas: list) -> str:
     return " ".join(lineas)
 
 
-def _generar_marcas(n_vertices: int) -> list:
-    return [f"P{i + 1}" for i in range(n_vertices)]
+def _generar_marcas(n_vertices: int, prefijo: str = "P") -> list:
+    """
+    Genera marcas de vértices con el prefijo indicado.
+    Exterior: P1, P2, ... Pn
+    Interior N°1: PI1-1, PI1-2, ... PI1-n
+    Interior N°2: PI2-1, PI2-2, ... PI2-n
+    """
+    return [f"{prefijo}{i + 1}" for i in range(n_vertices)]
+
+
+def _describir_anillo(vertices: list, feature, config: dict,
+                      prefijo_marca: str, offset_lindero: int = 0) -> tuple:
+    """
+    Genera las líneas de descripción de linderos para un anillo (exterior o interior).
+
+    Parámetros
+    ----------
+    vertices       : vértices ya procesados con pipeline normativo
+    feature        : QgsFeature
+    config         : dict de configuración del plugin
+    prefijo_marca  : prefijo para las marcas ("P" para exterior, "PI1", "PI2"... para interiores)
+    offset_lindero : número base para continuar la numeración de linderos
+
+    Retorna
+    -------
+    (lineas: list[str], ultimo_num_lindero: int)
+    """
+    from .colindantes import resolver_colindantes
+
+    n      = len(vertices)
+    marcas = _generar_marcas(n, prefijo=prefijo_marca)
+
+    colindantes_por_segmento = {}
+    if config.get("usar_colindantes", True):
+        colindantes_por_segmento = resolver_colindantes(
+            vertices      = vertices,
+            fid_principal = feature.id(),
+            config        = config,
+        )
+
+    geom_9377 = reproyectar_geometry(feature.geometry(), config["capa"].crs())
+    segmentos = construir_segmentos(vertices, colindantes_por_segmento, geom_9377,
+                                    offset_num_lindero=offset_lindero)
+    grupos    = agrupar_por_cuadrante(segmentos, offset=offset_lindero)
+
+    lineas = []
+    ultimo_num = offset_lindero
+
+    for cuadrante in CUADRANTES:
+        segs = grupos[cuadrante]
+        if not segs:
+            continue
+        lineas.append(f"POR EL {cuadrante}:")
+        lineas.append("")
+        for seg in segs:
+            texto = _texto_segmento(seg, marcas)
+            lineas.append(texto)
+            lineas.append("")
+            if seg["num_lindero"] > ultimo_num:
+                ultimo_num = seg["num_lindero"]
+
+    return lineas, ultimo_num
 
 
 def generar_descripcion(feature, config: dict) -> str:
@@ -122,22 +186,15 @@ def generar_descripcion(feature, config: dict) -> str:
     nupre_val = _valor_campo(feature, config["campo_nupre"])
     fmi_val   = _valor_campo(feature, config["campo_fmi"])
 
-    vertices = preparar_vertices_normativos(feature.geometry(), capa.crs())
-    n        = len(vertices)
-    marcas   = _generar_marcas(n)
+    # Pipeline normativo — anillo exterior
+    vertices_exterior = preparar_vertices_normativos(feature.geometry(), capa.crs())
 
-    if config.get("usar_colindantes", True):
-        colindantes_por_segmento = resolver_colindantes(
-            vertices      = vertices,
-            fid_principal = feature.id(),
-            config        = config
-        )
-    else:
-        colindantes_por_segmento = {}
+    # Pipeline normativo — anillos interiores (lista vacía si no hay)
+    anillos_interiores = preparar_anillos_interiores_normativos(
+        feature.geometry(), capa.crs()
+    )
 
     geom_9377 = reproyectar_geometry(feature.geometry(), capa.crs())
-    segmentos = construir_segmentos(vertices, colindantes_por_segmento, geom_9377)
-    grupos    = agrupar_por_cuadrante(segmentos)
     area_m2   = geom_9377.area()
 
     lineas = []
@@ -152,17 +209,39 @@ def generar_descripcion(feature, config: dict) -> str:
     )
     lineas.append("")
 
-    for cuadrante in CUADRANTES:
-        segs = grupos[cuadrante]
-        if not segs:
-            continue
-        lineas.append(f"POR EL {cuadrante}:")
-        lineas.append("")
-        for seg in segs:
-            texto = _texto_segmento(seg, marcas)
-            lineas.append(texto)
-            lineas.append("")
+    # ── Anillo exterior ──────────────────────────────────────────────────────
+    lineas_ext, ultimo_lindero = _describir_anillo(
+        vertices       = vertices_exterior,
+        feature        = feature,
+        config         = config,
+        prefijo_marca  = "P",
+        offset_lindero = 0,
+    )
+    lineas.extend(lineas_ext)
 
+    # ── Anillos interiores ───────────────────────────────────────────────────
+    for idx_anillo, vertices_interior in enumerate(anillos_interiores, start=1):
+        lineas.append(
+            f"DESCRIPCIÓN DEL ANILLO INTERIOR N°{idx_anillo}:"
+        )
+        lineas.append("")
+        lineas.append(
+            f"El predio presenta un hueco o enclave interior N°{idx_anillo} "
+            f"cuyos linderos son los siguientes:"
+        )
+        lineas.append("")
+
+        prefijo = f"PI{idx_anillo}-"
+        lineas_int, ultimo_lindero = _describir_anillo(
+            vertices       = vertices_interior,
+            feature        = feature,
+            config         = config,
+            prefijo_marca  = prefijo,
+            offset_lindero = ultimo_lindero,
+        )
+        lineas.extend(lineas_int)
+
+    # ── Área total ───────────────────────────────────────────────────────────
     lineas.append(
         f"De acuerdo con los anteriores linderos, el área del citado bien "
         f"inmueble es de: {_formato_area(area_m2, es_urbano)}."

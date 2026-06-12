@@ -16,6 +16,7 @@ def reproyectar_geometry(geom: QgsGeometry, crs_origen) -> QgsGeometry:
 
 
 def obtener_vertices(geom: QgsGeometry) -> list:
+    """Retorna los vértices del anillo exterior (sin vértice de cierre)."""
     vertices = []
     abstract = geom.constGet()
     if geom.isMultipart():
@@ -26,6 +27,67 @@ def obtener_vertices(geom: QgsGeometry) -> list:
         pt = exterior.pointN(i)
         vertices.append(QgsPointXY(pt.x(), pt.y()))
     return vertices
+
+
+def obtener_anillos_interiores(geom: QgsGeometry) -> list:
+    """
+    Retorna los anillos interiores de un polígono como lista de listas de QgsPointXY.
+
+    Cada anillo interior se entrega sin el vértice de cierre (último == primero),
+    listo para el mismo pipeline normativo que el anillo exterior:
+    asegurar_sentido_horario → punto_noroccidental → reordenar_desde_inicio.
+
+    Para MultiPolygon se usa la parte de mayor área.
+
+    Retorna lista vacía si no hay anillos interiores.
+    """
+    abstract = geom.constGet()
+    if abstract is None:
+        return []
+
+    # Seleccionar la parte principal en caso de MultiPolygon
+    if geom.isMultipart():
+        n_partes = abstract.numGeometries()
+        parte_idx = 0
+        area_max = 0.0
+        for i in range(n_partes):
+            parte_geom = QgsGeometry(abstract.geometryN(i).clone())
+            area = parte_geom.area()
+            if area > area_max:
+                area_max = area
+                parte_idx = i
+        parte = abstract.geometryN(parte_idx)
+    else:
+        parte = abstract
+
+    n_interiores = parte.numInteriorRings()
+    if n_interiores == 0:
+        return []
+
+    resultado = []
+    for i in range(n_interiores):
+        anillo = parte.interiorRing(i)
+        pts = []
+        # numPoints() incluye el vértice de cierre — se excluye con -1
+        for j in range(anillo.numPoints() - 1):
+            pt = anillo.pointN(j)
+            pts.append(QgsPointXY(pt.x(), pt.y()))
+        if len(pts) >= 3:
+            resultado.append(pts)
+
+    return resultado
+
+
+def preparar_vertices_anillo(puntos: list) -> list:
+    """
+    Aplica el pipeline normativo a una lista cruda de QgsPointXY:
+    sentido horario → inicio noroccidental.
+
+    Reutilizable para anillo exterior e interiores.
+    """
+    pts = asegurar_sentido_horario(puntos)
+    idx = punto_noroccidental(pts)
+    return reordenar_desde_inicio(pts, idx)
 
 
 def es_sentido_horario(vertices: list) -> bool:
@@ -80,8 +142,22 @@ def calcular_distancia(p1: QgsPointXY, p2: QgsPointXY) -> float:
 
 
 def preparar_vertices_normativos(geom: QgsGeometry, crs_capa) -> list:
+    """Pipeline normativo completo para el anillo exterior."""
     geom_proy = reproyectar_geometry(geom, crs_capa)
     vertices  = obtener_vertices(geom_proy)
     vertices  = asegurar_sentido_horario(vertices)
     idx       = punto_noroccidental(vertices)
     return reordenar_desde_inicio(vertices, idx)
+
+
+def preparar_anillos_interiores_normativos(geom: QgsGeometry, crs_capa) -> list:
+    """
+    Retorna lista de listas de vértices, una por anillo interior,
+    con el mismo pipeline normativo que el exterior:
+    reproyección → sentido horario → inicio noroccidental.
+
+    Retorna lista vacía si el predio no tiene anillos interiores.
+    """
+    geom_proy   = reproyectar_geometry(geom, crs_capa)
+    anillos_raw = obtener_anillos_interiores(geom_proy)
+    return [preparar_vertices_anillo(anillo) for anillo in anillos_raw]

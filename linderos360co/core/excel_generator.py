@@ -14,8 +14,15 @@ Precisión:
     - Azimut        : 4 decimales  (grados decimales)
 
 El orden de vértices es normativo: inicio en vértice noroccidental, sentido horario.
-La última fila (punto de cierre) no incluye Distancia ni Azimut.
-La fila de totales muestra el conteo de vértices y la suma de distancias perimetrales.
+La última fila de cada anillo (punto de cierre) no incluye Distancia ni Azimut.
+La fila de totales al final de cada sección muestra conteo y suma de distancias.
+
+Soporte de anillos interiores
+------------------------------
+Los anillos interiores se escriben en la misma hoja a continuación del exterior,
+separados por una fila de encabezado gris con el rótulo "ANILLO INTERIOR N°X".
+La numeración de vértices (N°) se reinicia en 1 para cada anillo.
+Las marcas del exterior son P1, P2... Las del interior N°1 son PI1-1, PI1-2...
 
 Lógica de nombre de archivo
 ---------------------------
@@ -51,6 +58,7 @@ from ..core.geometry_utils import (
     reordenar_desde_inicio,
     calcular_azimut,
     calcular_distancia,
+    preparar_anillos_interiores_normativos,
 )
 
 # ---------------------------------------------------------------------------
@@ -69,8 +77,10 @@ _NULOS = {"", "NULL", "None", "null", "nan", "NaN", "none"}
 # ---------------------------------------------------------------------------
 # Estilos visuales
 # ---------------------------------------------------------------------------
-_COLOR_ENCABEZADO = "1F4E79"  # azul institucional oscuro
-_COLOR_FILA_PAR   = "DDEEFF"  # azul claro para filas alternas
+_COLOR_ENCABEZADO        = "1F4E79"   # azul institucional oscuro
+_COLOR_FILA_PAR          = "DDEEFF"   # azul claro para filas alternas
+_COLOR_SEP_ANILLO        = "D9D9D9"   # gris para fila separadora de anillo interior
+_COLOR_SEP_ANILLO_FUENTE = "1F4E79"   # texto azul oscuro en separador
 
 
 def _estilos() -> tuple:
@@ -145,17 +155,17 @@ def _punto_a_wgs84(punto, transform: QgsCoordinateTransform) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Construcción de filas
+# Construcción de filas por anillo
 # ---------------------------------------------------------------------------
 
-def _construir_filas(vertices: list, transform: QgsCoordinateTransform) -> list:
+def _construir_filas_anillo(vertices: list, transform: QgsCoordinateTransform,
+                             prefijo_marca: str = "P") -> list:
     """
-    Genera la lista de tuplas para la hoja Vértices.
+    Genera la lista de tuplas para un anillo (exterior o interior).
 
     Cada tupla: (N°, Marca, Norte, Este, Latitud, Longitud, Distancia, Azimut)
 
-    Distancia y Azimut corresponden al segmento P_i → P_{i+1}.
-    La última fila lleva None en esos campos: el recorrido normativo
+    La última fila lleva None en Distancia y Azimut: el recorrido normativo
     cierra en P1 y ese segmento ya fue descrito en la fila anterior.
 
     Norte = coordenada Y en EPSG:9377 (Northing)
@@ -180,7 +190,8 @@ def _construir_filas(vertices: list, transform: QgsCoordinateTransform) -> list:
             dist   = None
             azimut = None
 
-        filas.append((i + 1, f"P{i + 1}", norte, este, lat, lon, dist, azimut))
+        marca = f"{prefijo_marca}{i + 1}"
+        filas.append((i + 1, marca, norte, este, lat, lon, dist, azimut))
 
     return filas
 
@@ -189,10 +200,87 @@ def _construir_filas(vertices: list, transform: QgsCoordinateTransform) -> list:
 # Escritura de la hoja Excel
 # ---------------------------------------------------------------------------
 
-def _escribir_hoja_vertices(wb, filas: list) -> None:
-    """Escribe, formatea y congela la hoja Vértices en el workbook."""
+def _escribir_fila_separador(ws, fila_idx: int, texto: str,
+                              borde, n_columnas: int = 8) -> None:
+    """Escribe una fila de separador con fondo gris para distinguir anillos interiores."""
+    relleno_sep = PatternFill("solid", fgColor=_COLOR_SEP_ANILLO)
+    fuente_sep  = Font(name="Calibri", bold=True, italic=True,
+                       color=_COLOR_SEP_ANILLO_FUENTE, size=10)
+    al_centro   = Alignment(horizontal="center", vertical="center")
+
+    for col_idx in range(1, n_columnas + 1):
+        celda        = ws.cell(row=fila_idx, column=col_idx)
+        celda.fill   = relleno_sep
+        celda.border = borde
+        celda.font   = fuente_sep
+        celda.alignment = al_centro
+
+    # Texto solo en columna 2 (Marca), que es la columna más legible
+    ws.cell(row=fila_idx, column=2, value=texto)
+
+
+def _escribir_fila_total(ws, fila_idx: int, n_vertices: int, total_dist: float,
+                         fuente_total, borde, al_centro, al_derecha) -> None:
+    """Escribe la fila de totales para un anillo."""
+    celda_lbl           = ws.cell(row=fila_idx, column=2,
+                                  value=f"Total: {n_vertices} vértices")
+    celda_lbl.font      = fuente_total
+    celda_lbl.border    = borde
+    celda_lbl.alignment = al_centro
+
+    celda_dist               = ws.cell(row=fila_idx, column=7, value=total_dist)
+    celda_dist.font          = fuente_total
+    celda_dist.border        = borde
+    celda_dist.alignment     = al_derecha
+    celda_dist.number_format = "#,##0.0"
+
+    # Borde en celdas vacías de la fila de totales
+    for col_idx in [1, 3, 4, 5, 6, 8]:
+        ws.cell(row=fila_idx, column=col_idx).border = borde
+
+
+def _escribir_filas_datos(ws, filas: list, fila_inicio: int,
+                          fuente_dato, borde, al_centro, al_derecha) -> int:
+    """
+    Escribe las filas de datos de un anillo en la hoja.
+    Retorna el índice de la siguiente fila disponible.
+    """
+    relleno_par = PatternFill("solid", fgColor=_COLOR_FILA_PAR)
+
+    for offset, fila in enumerate(filas):
+        fila_idx = fila_inicio + offset
+        es_par   = (fila_idx % 2 == 0)
+
+        for col_idx, valor in enumerate(fila, start=1):
+            celda           = ws.cell(row=fila_idx, column=col_idx, value=valor)
+            celda.font      = fuente_dato
+            celda.border    = borde
+            celda.alignment = al_centro if col_idx <= 2 else al_derecha
+            if es_par:
+                celda.fill = relleno_par
+
+            # Formato numérico por columna
+            if col_idx in (3, 4):    # Norte / Este
+                celda.number_format = "#,##0.0000"
+            elif col_idx in (5, 6):  # Latitud / Longitud
+                celda.number_format = "0.000000"
+            elif col_idx == 7:       # Distancia
+                celda.number_format = "#,##0.0"
+            elif col_idx == 8:       # Azimut
+                celda.number_format = "0.0000"
+
+    return fila_inicio + len(filas)
+
+
+def _escribir_hoja_vertices(wb, filas_exterior: list,
+                             filas_interiores: list) -> None:
+    """
+    Escribe, formatea y congela la hoja Vértices en el workbook.
+
+    filas_exterior  : lista de tuplas para el anillo exterior
+    filas_interiores: lista de listas de tuplas (una lista por anillo interior)
+    """
     fuente_enc, relleno_enc, al_centro, al_derecha, borde = _estilos()
-    relleno_par  = PatternFill("solid", fgColor=_COLOR_FILA_PAR)
     fuente_dato  = Font(name="Calibri", size=10)
     fuente_total = Font(name="Calibri", bold=True, size=10)
 
@@ -218,47 +306,47 @@ def _escribir_hoja_vertices(wb, filas: list) -> None:
 
     ws.row_dimensions[1].height = 28
 
-    # --- Filas de datos ---
-    for fila_idx, fila in enumerate(filas, start=2):
-        es_par = (fila_idx % 2 == 0)
-        for col_idx, valor in enumerate(fila, start=1):
-            celda           = ws.cell(row=fila_idx, column=col_idx, value=valor)
-            celda.font      = fuente_dato
-            celda.border    = borde
-            celda.alignment = al_centro if col_idx <= 2 else al_derecha
-            if es_par:
-                celda.fill = relleno_par
+    # --- Anillo exterior ---
+    fila_actual = 2
+    fila_actual = _escribir_filas_datos(
+        ws, filas_exterior, fila_actual,
+        fuente_dato, borde, al_centro, al_derecha
+    )
 
-            # Formato numérico por columna
-            if col_idx in (3, 4):    # Norte / Este
-                celda.number_format = "#,##0.0000"
-            elif col_idx in (5, 6):  # Latitud / Longitud
-                celda.number_format = "0.000000"
-            elif col_idx == 7:       # Distancia
-                celda.number_format = "#,##0.0"
-            elif col_idx == 8:       # Azimut
-                celda.number_format = "0.0000"
+    total_dist_ext = round(
+        sum(f[6] for f in filas_exterior if f[6] is not None), _DECIMALES_DIST
+    )
+    _escribir_fila_total(
+        ws, fila_actual, len(filas_exterior), total_dist_ext,
+        fuente_total, borde, al_centro, al_derecha
+    )
+    fila_actual += 1
 
-    # --- Fila de totales ---
-    fila_total = len(filas) + 2
+    # --- Anillos interiores ---
+    for idx_anillo, filas_int in enumerate(filas_interiores, start=1):
+        # Fila separadora
+        _escribir_fila_separador(
+            ws, fila_actual,
+            f"ANILLO INTERIOR N°{idx_anillo}",
+            borde
+        )
+        fila_actual += 1
 
-    celda_lbl           = ws.cell(row=fila_total, column=2,
-                                  value=f"Total: {len(filas)} vértices")
-    celda_lbl.font      = fuente_total
-    celda_lbl.border    = borde
-    celda_lbl.alignment = al_centro
+        # Filas de datos del anillo interior
+        fila_actual = _escribir_filas_datos(
+            ws, filas_int, fila_actual,
+            fuente_dato, borde, al_centro, al_derecha
+        )
 
-    total_dist               = round(sum(f[6] for f in filas if f[6] is not None),
-                                     _DECIMALES_DIST)
-    celda_dist               = ws.cell(row=fila_total, column=7, value=total_dist)
-    celda_dist.font          = fuente_total
-    celda_dist.border        = borde
-    celda_dist.alignment     = al_derecha
-    celda_dist.number_format = "#,##0.0"
-
-    # Borde en celdas vacías de la fila de totales
-    for col_idx in [1, 3, 4, 5, 6, 8]:
-        ws.cell(row=fila_total, column=col_idx).border = borde
+        # Fila de totales del anillo interior
+        total_dist_int = round(
+            sum(f[6] for f in filas_int if f[6] is not None), _DECIMALES_DIST
+        )
+        _escribir_fila_total(
+            ws, fila_actual, len(filas_int), total_dist_int,
+            fuente_total, borde, al_centro, al_derecha
+        )
+        fila_actual += 1
 
     ws.freeze_panes = "A2"
 
@@ -270,6 +358,9 @@ def _escribir_hoja_vertices(wb, filas: list) -> None:
 def exportar_xlsx(feature: QgsFeature, config: dict) -> str:
     """
     Genera el archivo .xlsx de coordenadas de vértices para el feature dado.
+
+    Soporta predios con anillos interiores. Los anillos interiores se añaden
+    en la misma hoja bajo filas separadoras grises "ANILLO INTERIOR N°X".
 
     El pipeline geométrico es idéntico al módulo TXT:
     reproyección → vértices → sentido horario → inicio noroccidental.
@@ -307,20 +398,33 @@ def exportar_xlsx(feature: QgsFeature, config: dict) -> str:
 
     capa = config["capa"]
 
-    # Pipeline geométrico — idéntico al módulo TXT (§5.2 del contexto)
+    # Pipeline geométrico — anillo exterior (idéntico a v1.0.1)
     geom      = reproyectar_geometry(feature.geometry(), capa.crs())
     verts_raw = obtener_vertices(geom)
     verts_cw  = asegurar_sentido_horario(verts_raw)
     idx_nw    = punto_noroccidental(verts_cw)
     vertices  = reordenar_desde_inicio(verts_cw, idx_nw)
 
+    # Pipeline geométrico — anillos interiores
+    anillos_interiores = preparar_anillos_interiores_normativos(
+        feature.geometry(), capa.crs()
+    )
+
     # Transformación EPSG:9377 → EPSG:4326 para columnas geográficas
     transform = QgsCoordinateTransform(_CRS_9377, _CRS_4326, QgsProject.instance())
 
-    filas = _construir_filas(vertices, transform)
+    # Construir filas para cada anillo
+    filas_exterior = _construir_filas_anillo(vertices, transform, prefijo_marca="P")
 
-    wb   = openpyxl.Workbook()
-    _escribir_hoja_vertices(wb, filas)
+    filas_interiores = []
+    for idx_anillo, verts_int in enumerate(anillos_interiores, start=1):
+        prefijo = f"PI{idx_anillo}-"
+        filas_interiores.append(
+            _construir_filas_anillo(verts_int, transform, prefijo_marca=prefijo)
+        )
+
+    wb = openpyxl.Workbook()
+    _escribir_hoja_vertices(wb, filas_exterior, filas_interiores)
 
     ruta = _nombre_archivo(feature, config)
     wb.save(ruta)

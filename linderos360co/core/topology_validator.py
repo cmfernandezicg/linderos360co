@@ -17,42 +17,62 @@ NIVEL_ADVERTENCIA = "ADVERTENCIA"
 
 def _extraer_anillos(geom_proy) -> list:
     """
-    Extrae los anillos del primer poligono de forma segura para cualquier
+    Extrae los anillos del primer polígono de forma segura para cualquier
     tipo: Polygon, PolygonZ, MultiPolygon, MultiPolygonZ.
 
-    Usa QgsGeometry.constGet() + iteracion sobre partes y anillos para
-    obtener vertices XY puros sin depender de asPolygon() ni convertTo(),
-    que fallan o crashean con geometrias Z o multipart en QGIS 3.x LTR.
+    Usa QgsGeometry.constGet() + iteración sobre partes y anillos para
+    obtener vértices XY puros sin depender de asPolygon() ni convertTo(),
+    que fallan o crashean con geometrías Z o multipart en QGIS 3.x LTR.
+
+    Retorna lista donde [0] es el anillo exterior y [1..N] son interiores.
+    Cada anillo es una lista de QgsPointXY incluyendo vértice de cierre.
     """
     from qgis.core import QgsPointXY
 
     try:
-        geom_abs = geom_proy.constGet()
-        if geom_abs is None:
+        abstract = geom_proy.constGet()
+        if abstract is None:
             return []
 
-        # Detectar si es multipart navegando la coleccion de geometrias
-        coleccion = geom_proy.asGeometryCollection()
-        if coleccion:
-            # Tomar la primera parte como geometria de trabajo
-            primera = coleccion[0]
+        # Seleccionar la parte principal en caso de MultiPolygon
+        if geom_proy.isMultipart():
+            n_partes = abstract.numGeometries()
+            parte_idx = 0
+            area_max = 0.0
+            for i in range(n_partes):
+                parte_geom = QgsGeometry(abstract.geometryN(i).clone())
+                area = parte_geom.area()
+                if area > area_max:
+                    area_max = area
+                    parte_idx = i
+            parte = abstract.geometryN(parte_idx)
         else:
-            primera = geom_proy
+            parte = abstract
 
-        # Extraer vertices del anillo exterior usando vertexAt() sobre
-        # indices conocidos — mas seguro que asPolygon() con Z
-        n_vertices = primera.constGet().nCoordinates() if primera.constGet() else 0
-        if n_vertices == 0:
+        # Anillo exterior
+        exterior_ring = parte.exteriorRing()
+        if exterior_ring is None or exterior_ring.numPoints() == 0:
             return []
 
         anillo_ext = []
-        for i in range(n_vertices):
-            v = primera.vertexAt(i)
-            anillo_ext.append(QgsPointXY(v.x(), v.y()))
+        for i in range(exterior_ring.numPoints()):
+            pt = exterior_ring.pointN(i)
+            anillo_ext.append(QgsPointXY(pt.x(), pt.y()))
 
-        # vertexAt recorre TODOS los anillos en secuencia; para la validacion
-        # basica el anillo exterior completo es suficiente
-        return [anillo_ext] if anillo_ext else []
+        anillos = [anillo_ext]
+
+        # Anillos interiores
+        n_interiores = parte.numInteriorRings()
+        for i in range(n_interiores):
+            ring = parte.interiorRing(i)
+            anillo_int = []
+            for j in range(ring.numPoints()):
+                pt = ring.pointN(j)
+                anillo_int.append(QgsPointXY(pt.x(), pt.y()))
+            if anillo_int:
+                anillos.append(anillo_int)
+
+        return anillos
 
     except Exception:
         return []
@@ -126,13 +146,44 @@ def validar_feature(feature, crs_capa) -> list:
             "El poligono tiene solo " + str(n_validos) +
             " vertice(s) unicos; minimo requerido: 3"))
 
-    # Anillos interiores
-    if len(anillos) > 1:
-        n_huecos = len(anillos) - 1
+    # -- Nivel 4: anillos interiores — informativo, no bloqueante --
+    n_interiores = len(anillos) - 1
+    if n_interiores > 0:
         problemas.append((NIVEL_ADVERTENCIA,
-            "El poligono tiene " + str(n_huecos) +
-            " anillo(s) interior(es) (huecos). " +
-            "El plugin procesa unicamente el anillo exterior."))
+            "El poligono tiene " + str(n_interiores) +
+            " anillo(s) interior(es). "
+            "Se procesaran como linderos independientes en TXT y XLSX."))
+
+        # Validar cada anillo interior individualmente
+        for idx_anillo, anillo_int in enumerate(anillos[1:], start=1):
+            n_int = len(anillo_int)
+
+            # Mínimo de vértices
+            n_int_validos = n_int - 1
+            if n_int_validos < 3:
+                problemas.append((NIVEL_ERROR,
+                    "Anillo interior N°" + str(idx_anillo) +
+                    " tiene solo " + str(n_int_validos) +
+                    " vertice(s) unicos; minimo requerido: 3"))
+
+            # Cierre del anillo interior
+            if n_int >= 2:
+                p_ini_int = anillo_int[0]
+                p_fin_int = anillo_int[-1]
+                if (abs(p_ini_int.x() - p_fin_int.x()) > 1e-6 or
+                        abs(p_ini_int.y() - p_fin_int.y()) > 1e-6):
+                    problemas.append((NIVEL_ADVERTENCIA,
+                        "Anillo interior N°" + str(idx_anillo) +
+                        " no esta cerrado correctamente"))
+
+            # Área mínima del anillo interior
+            geom_int = QgsGeometry.fromPolygonXY([anillo_int])
+            area_int = abs(geom_int.area())
+            if area_int <= _AREA_MINIMA_M2:
+                problemas.append((NIVEL_ADVERTENCIA,
+                    "Anillo interior N°" + str(idx_anillo) +
+                    " tiene area despreciable (" +
+                    str(round(area_int, 4)) + " m2)"))
 
     return problemas
 
@@ -156,7 +207,7 @@ def tiene_bloqueantes(problemas_feature: list) -> bool:
 
 
 def resumen_validacion(resultado: dict, features) -> str:
-    """Texto del dialogo de advertencia previo al procesamiento."""
+    """Texto del diálogo de advertencia previo al procesamiento."""
     fid_a_label = {f.id(): str(f.id()) for f in features}
     total = len(resultado)
 

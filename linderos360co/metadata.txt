@@ -78,7 +78,7 @@ experimental=False
 deprecated=False
 
 ; ── Historial de cambios ───────────────────────────────────────────────────
-changelog=v1.1.0: Soporte de polígonos con anillos interiores en TXT y XLSX
+changelog=v1.1.0: Soporte de polígonos con anillos interiores en TXT, XLSX y PDF
  Primera versión pública del complemento.
  - Descripción técnica de linderos (.txt) según resolución conjunta IGAC-SNR.
  - Plano cartográfico (.pdf) desde plantilla .qpt con variables dinámicas.

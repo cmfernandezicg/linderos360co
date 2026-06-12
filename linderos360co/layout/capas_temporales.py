@@ -304,12 +304,14 @@ def _crear_capa_colindantes(feature, capa_origen, config: dict) -> QgsVectorLaye
 
 # ------------------------------------------------------------------ Capa vértices
 
-def _crear_capa_vertices(vertices: list, escala: float = 1000.0) -> QgsVectorLayer:
+def _crear_capa_vertices(vertices: list, escala: float = 1000.0,
+                         anillos_interiores: list = None) -> QgsVectorLayer:
     """
-    vertices: lista de QgsPointXY en EPSG:9377, ordenados desde NW.
+    vertices:           lista de QgsPointXY en EPSG:9377, anillo exterior.
+    anillos_interiores: lista de listas de QgsPointXY, uno por anillo interior.
     Filtra etiquetas según escala del mapa: mínimo 3mm entre etiquetas en papel.
+    Marcas: exterior P1,P2... / interior N°1: PI1-1,PI1-2... / interior N°2: PI2-1...
     """
-    # 3mm en papel convertidos a metros según escala
     DIST_MIN_LABEL = max(3.0 * escala / 1000.0, 5.0)
 
     campos = QgsFields()
@@ -322,18 +324,24 @@ def _crear_capa_vertices(vertices: list, escala: float = 1000.0) -> QgsVectorLay
     feats = []
     vertices_etiquetados = []
 
-    for i, v in enumerate(vertices):
+    # Construir lista unificada: (punto, marca)
+    puntos_marcas = [(v, f"P{i + 1}") for i, v in enumerate(vertices)]
+    for idx_anillo, anillo in enumerate(anillos_interiores or [], start=1):
+        for i, v in enumerate(anillo):
+            puntos_marcas.append((v, f"PI{idx_anillo}-{i + 1}"))
+
+    for punto, marca in puntos_marcas:
         demasiado_cerca = any(
-            ((v.x() - vp.x()) ** 2 + (v.y() - vp.y()) ** 2) ** 0.5 < DIST_MIN_LABEL
+            ((punto.x() - vp.x()) ** 2 + (punto.y() - vp.y()) ** 2) ** 0.5 < DIST_MIN_LABEL
             for vp in vertices_etiquetados
         )
         feat = QgsFeature()
-        feat.setGeometry(QgsGeometry.fromPointXY(v))
-        etiqueta = f"P{i + 1}" if not demasiado_cerca else ""
+        feat.setGeometry(QgsGeometry.fromPointXY(punto))
+        etiqueta = marca if not demasiado_cerca else ""
         feat.setAttributes([etiqueta])
         feats.append(feat)
         if not demasiado_cerca:
-            vertices_etiquetados.append(v)
+            vertices_etiquetados.append(punto)
 
     capa.dataProvider().addFeatures(feats)
     capa.updateExtents()
@@ -360,9 +368,11 @@ def _crear_capa_vertices(vertices: list, escala: float = 1000.0) -> QgsVectorLay
 
 # ------------------------------------------------------------------ Capa segmentos
 
-def _crear_capa_segmentos(vertices: list) -> QgsVectorLayer:
+def _crear_capa_segmentos(vertices: list,
+                          anillos_interiores: list = None) -> QgsVectorLayer:
     """
     Crea segmentos entre vértices consecutivos con etiqueta de distancia.
+    Incluye segmentos del anillo exterior y de todos los anillos interiores.
     Solo etiqueta segmentos >= 10m para evitar ruido visual.
     """
     LONG_MIN_LABEL = 10.0
@@ -374,17 +384,26 @@ def _crear_capa_segmentos(vertices: list) -> QgsVectorLayer:
     capa.dataProvider().addAttributes(campos)
     capa.updateFields()
 
-    n     = len(vertices)
     feats = []
-    for i in range(n):
-        p1   = vertices[i]
-        p2   = vertices[(i + 1) % n]
-        dist = ((p2.x() - p1.x()) ** 2 + (p2.y() - p1.y()) ** 2) ** 0.5
-        feat = QgsFeature()
-        feat.setGeometry(QgsGeometry.fromPolylineXY([p1, p2]))
-        etiqueta = f"{dist:.1f}m" if dist >= LONG_MIN_LABEL else ""
-        feat.setAttributes([etiqueta])
-        feats.append(feat)
+
+    def _segmentos_desde_anillo(pts: list) -> None:
+        n = len(pts)
+        for i in range(n):
+            p1   = pts[i]
+            p2   = pts[(i + 1) % n]
+            dist = ((p2.x() - p1.x()) ** 2 + (p2.y() - p1.y()) ** 2) ** 0.5
+            feat = QgsFeature()
+            feat.setGeometry(QgsGeometry.fromPolylineXY([p1, p2]))
+            etiqueta = f"{dist:.1f}m" if dist >= LONG_MIN_LABEL else ""
+            feat.setAttributes([etiqueta])
+            feats.append(feat)
+
+    # Anillo exterior
+    _segmentos_desde_anillo(vertices)
+
+    # Anillos interiores
+    for anillo in (anillos_interiores or []):
+        _segmentos_desde_anillo(anillo)
 
     capa.dataProvider().addFeatures(feats)
     capa.updateExtents()
@@ -466,16 +485,18 @@ def construir_leyenda(layout, mapa_principal, capas: dict) -> None:
 # ------------------------------------------------------------------ Punto de entrada
 
 def preparar_capas_layout(feature, capa_origen, config: dict,
-                          vertices: list) -> dict:
+                          vertices: list,
+                          anillos_interiores: list = None) -> dict:
     """
     Punto de entrada único. Limpia capas anteriores, crea las 4 capas
     temporales, las agrega al proyecto (sin mostrar en panel) y retorna el dict.
 
     Args:
-        feature:      QgsFeature del predio principal
-        capa_origen:  QgsVectorLayer fuente
-        config:       dict de configuración del plugin
-        vertices:     lista de QgsPointXY en EPSG:9377
+        feature:            QgsFeature del predio principal
+        capa_origen:        QgsVectorLayer fuente
+        config:             dict de configuración del plugin
+        vertices:           lista de QgsPointXY en EPSG:9377 — anillo exterior
+        anillos_interiores: lista de listas de QgsPointXY — anillos interiores
 
     Returns:
         dict con keys: 'predio', 'colindantes', 'vertices', 'segmentos'
@@ -483,12 +504,15 @@ def preparar_capas_layout(feature, capa_origen, config: dict,
     limpiar_capas_temporales()
 
     geom_9377 = _reproyectar(feature.geometry(), capa_origen.crs())
+    anillos_interiores = anillos_interiores or []
 
     capas = {
         "predio":      _crear_capa_predio(geom_9377, config, feature),
         "colindantes": _crear_capa_colindantes(feature, capa_origen, config),
-        "vertices":    _crear_capa_vertices(vertices),
-        "segmentos":   _crear_capa_segmentos(vertices),
+        "vertices":    _crear_capa_vertices(vertices,
+                                            anillos_interiores=anillos_interiores),
+        "segmentos":   _crear_capa_segmentos(vertices,
+                                             anillos_interiores=anillos_interiores),
     }
 
     for capa in capas.values():

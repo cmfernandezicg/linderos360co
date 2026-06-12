@@ -375,7 +375,10 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
     Returns:
         Ruta absoluta del PDF generado.
     """
-    from linderos360co.core.geometry_utils import preparar_vertices_normativos
+    from linderos360co.core.geometry_utils import (
+        preparar_vertices_normativos,
+        preparar_anillos_interiores_normativos,
+    )
 
     proyecto  = QgsProject.instance()
     capa      = config["capa"]
@@ -395,10 +398,12 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
     bbox.grow(margen)
 
     # 2. Vértices (ordenados desde NW, sentido horario)
-    vertices = preparar_vertices_normativos(feature.geometry(), capa.crs())
+    vertices           = preparar_vertices_normativos(feature.geometry(), capa.crs())
+    anillos_interiores = preparar_anillos_interiores_normativos(feature.geometry(), capa.crs())
 
     # 3. Capas temporales
-    capas = preparar_capas_layout(feature, capa, config, vertices)
+    capas = preparar_capas_layout(feature, capa, config, vertices,
+                                  anillos_interiores=anillos_interiores)
 
     # 4. Cargar plantilla
     layout = _cargar_plantilla(proyecto)

@@ -7,11 +7,11 @@
 
 ; ── Identificación ─────────────────────────────────────────────────────────
 name=Linderos360CO
-qgisMinimumVersion=3.16
-qgisMaximumVersion=3.99
+qgisMinimumVersion=4.0
+qgisMaximumVersion=4.99
 
 ; ── Versión ────────────────────────────────────────────────────────────────
-version=1.1.0
+version=2.0.0
 
 ; ── Autor ──────────────────────────────────────────────────────────────────
 author=Carlos Mario Fernández Barrios
@@ -62,7 +62,7 @@ tags=catastro, linderos, colombia, igac, snr, predios, descripcion tecnica,
  boundary, parcel, cadastre, pdf, xlsx, coordenadas, MAGNA-SIRGAS, EPSG:9377,
  multipropósito, plano cartografico, topografia
 
-; ── URLs — actualizar con el repositorio real una vez creado en GitHub ─────
+; ── URLs ───────────────────────────────────────────────────────────────────
 homepage=https://github.com/cmfernandezicg/linderos360co
 tracker=https://github.com/cmfernandezicg/linderos360co/issues
 repository=https://github.com/cmfernandezicg/linderos360co
@@ -78,8 +78,21 @@ experimental=False
 deprecated=False
 
 ; ── Historial de cambios ───────────────────────────────────────────────────
-changelog=v1.1.0: Soporte de polígonos con anillos interiores en TXT, XLSX y PDF
- Primera versión pública del complemento.
+changelog=v2.0.0: Migración a QGIS 4.x / PyQt6
+ - QVariant eliminado: QgsField usa QMetaType.Type.QString
+ - QgsUnitTypes eliminado: reemplazado por Qgis.RenderUnit, Qgis.LayoutUnit y Qgis.DistanceUnit
+ - Enums Qt estrictos PyQt6: Qt.AlignmentFlag, Qt.ItemFlag, Qt.WindowModality,
+   Qt.AspectRatioMode, Qt.TransformationMode, QMessageBox.Icon, QMessageBox.StandardButton,
+   QMessageBox.ButtonRole, QHeaderView.ResizeMode, QAbstractItemView.EditTrigger,
+   QAbstractItemView.SelectionMode
+ - QIODevice.ReadOnly reemplazado por QIODevice.OpenModeFlag.ReadOnly
+ - QgsLayoutItemPicture.Zoom reemplazado por QgsLayoutItemPicture.ResizeMode.Zoom
+ - QgsLayoutExporter.Success reemplazado por QgsLayoutExporter.ExportResult.Success
+ - QgsWkbTypes.PolygonGeometry reemplazado por Qgis.GeometryType.Polygon
+ - exec_() reemplazado por exec() en diálogos PyQt6
+ v1.1.0: Soporte de polígonos con anillos interiores en TXT, XLSX y PDF
+ v1.0.1: Corrección de imports internos linderos_plugin a linderos360co
+ v1.0.0: Primera versión pública del complemento.
  - Descripción técnica de linderos (.txt) según resolución conjunta IGAC-SNR.
  - Plano cartográfico (.pdf) desde plantilla .qpt con variables dinámicas.
  - Tabla de coordenadas (.xlsx) en MAGNA-SIRGAS y WGS84.

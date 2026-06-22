@@ -4,20 +4,27 @@ layout/capas_temporales.py
 Crea y gestiona las capas temporales en memoria que se inyectan
 al layout PDF. Cada ejecución limpia las capas anteriores antes
 de crear las nuevas.
+
+QGIS 4.x / PyQt6 — Cambios respecto a v1.x:
+  - QVariant eliminado: QgsField usa QMetaType.Type.QString
+  - QgsUnitTypes eliminado: reemplazado por Qgis.RenderUnit y Qgis.LayoutUnit
+  - PyQt6: from qgis.PyQt.QtCore ya no exporta QVariant
 """
 
 from qgis.core import (
+    Qgis,
     QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY,
     QgsProject, QgsField, QgsFields,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsFillSymbol, QgsLineSymbol, QgsMarkerSymbol,
     QgsSingleSymbolRenderer,
     QgsPalLayerSettings, QgsVectorLayerSimpleLabeling,
-    QgsTextFormat, QgsUnitTypes,
+    QgsTextFormat,
     QgsLayerTreeLayer, QgsLayoutItemLegend,
     QgsMapLayerLegendUtils, QgsLabelObstacleSettings,
 )
-from qgis.PyQt.QtCore import QVariant
+# PyQt6: QMetaType reemplaza a QVariant para definir tipos de campo
+from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor, QFont
 
 # ------------------------------------------------------------------ Constantes
@@ -84,7 +91,8 @@ def _fmt_texto(tamanio: int, color: QColor = QColor(0, 0, 0)) -> QgsTextFormat:
     fmt = QgsTextFormat()
     fmt.setFont(_fuente(tamanio))
     fmt.setSize(tamanio)
-    fmt.setSizeUnit(QgsUnitTypes.RenderPoints)
+    # QGIS 4.x: QgsUnitTypes.RenderPoints → Qgis.RenderUnit.Points
+    fmt.setSizeUnit(Qgis.RenderUnit.Points)
     fmt.setColor(color)
     return fmt
 
@@ -121,6 +129,9 @@ def _campos_desde_pdf(config: dict) -> tuple:
             campo_nombre = campo_nombre or campo
 
     return campo_nupre, campo_fmi, campo_nombre
+
+
+# ------------------------------------------------------------------ Capa predio
 
 def _crear_capa_predio(geom_9377: QgsGeometry, config: dict,
                        feature) -> QgsVectorLayer:
@@ -181,10 +192,9 @@ def _crear_capa_predio(geom_9377: QgsGeometry, config: dict,
 
     pal = QgsPalLayerSettings()
     pal.fieldName  = "etiqueta"
-    # Horizontal: QGIS busca el mejor punto libre dentro del polígono
     pal.placement  = QgsPalLayerSettings.Placement.Horizontal
     pal.displayAll = True
-    pal.priority   = 8  # prioridad alta — es el predio principal
+    pal.priority   = 8
     pal.setFormat(_fmt_texto(6, QColor(180, 0, 0)))
     capa.setLabeling(QgsVectorLayerSimpleLabeling(pal))
     capa.setLabelsEnabled(True)
@@ -285,10 +295,9 @@ def _crear_capa_colindantes(feature, capa_origen, config: dict) -> QgsVectorLaye
 
     pal = QgsPalLayerSettings()
     pal.fieldName  = "etiqueta"
-    # Horizontal: busca espacio libre dentro del polígono colindante
     pal.placement  = QgsPalLayerSettings.Placement.Horizontal
     pal.displayAll = False
-    pal.priority   = 3  # prioridad baja — cede ante vértices y distancias
+    pal.priority   = 3
 
     obs = QgsLabelObstacleSettings()
     obs.setIsObstacle(True)
@@ -315,7 +324,8 @@ def _crear_capa_vertices(vertices: list, escala: float = 1000.0,
     DIST_MIN_LABEL = max(3.0 * escala / 1000.0, 5.0)
 
     campos = QgsFields()
-    campos.append(QgsField("etiqueta", QVariant.String))
+    # QGIS 4.x: QMetaType.Type.QString reemplaza a QVariant.String
+    campos.append(QgsField("etiqueta", QMetaType.Type.QString))
 
     capa = QgsVectorLayer(f"Point?crs={_CRS_STR}", _NOMBRE_VERTICES, "memory")
     capa.dataProvider().addAttributes(campos)
@@ -378,7 +388,8 @@ def _crear_capa_segmentos(vertices: list,
     LONG_MIN_LABEL = 10.0
 
     campos = QgsFields()
-    campos.append(QgsField("distancia", QVariant.String))
+    # QGIS 4.x: QMetaType.Type.QString reemplaza a QVariant.String
+    campos.append(QgsField("distancia", QMetaType.Type.QString))
 
     capa = QgsVectorLayer(f"LineString?crs={_CRS_STR}", _NOMBRE_SEGMENTOS, "memory")
     capa.dataProvider().addAttributes(campos)
@@ -440,15 +451,13 @@ def construir_leyenda(layout, mapa_principal, capas: dict) -> None:
 
     leyenda.setLinkedMap(mapa_principal)
     leyenda.setAutoUpdateModel(False)
-
-    # Desactivar auto-resize — evita que la leyenda desborde el panel
     leyenda.setResizeToContents(False)
 
-    # Fijar tamaño máximo seguro dentro del panel (panel termina en y=211mm)
-    from qgis.core import QgsLayoutSize, QgsUnitTypes
-    LEYENDA_H_MAX = 55.0  # mm — espacio disponible hasta el fondo del panel
+    # QGIS 4.x: QgsUnitTypes.LayoutMillimeters → Qgis.LayoutUnit.Millimeters
+    from qgis.core import QgsLayoutSize
+    LEYENDA_H_MAX = 55.0
     leyenda.attemptResize(
-        QgsLayoutSize(40.0, LEYENDA_H_MAX, QgsUnitTypes.LayoutMillimeters)
+        QgsLayoutSize(40.0, LEYENDA_H_MAX, Qgis.LayoutUnit.Millimeters)
     )
 
     root = leyenda.model().rootGroup()

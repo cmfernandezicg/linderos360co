@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
+"""
+core/topology_validator.py
+
+QGIS 4.x — Cambios respecto a v1.x:
+  - QgsWkbTypes.PolygonGeometry → Qgis.GeometryType.Polygon
+  - QgsWkbTypes.geometryType() sigue disponible para obtener el tipo base
+  - QgsWkbTypes.displayString() sigue disponible para el mensaje de error
+"""
 from qgis.core import (
+    Qgis,
     QgsGeometry,
     QgsWkbTypes,
     QgsCoordinateReferenceSystem,
@@ -20,10 +29,6 @@ def _extraer_anillos(geom_proy) -> list:
     Extrae los anillos del primer polígono de forma segura para cualquier
     tipo: Polygon, PolygonZ, MultiPolygon, MultiPolygonZ.
 
-    Usa QgsGeometry.constGet() + iteración sobre partes y anillos para
-    obtener vértices XY puros sin depender de asPolygon() ni convertTo(),
-    que fallan o crashean con geometrías Z o multipart en QGIS 3.x LTR.
-
     Retorna lista donde [0] es el anillo exterior y [1..N] son interiores.
     Cada anillo es una lista de QgsPointXY incluyendo vértice de cierre.
     """
@@ -36,14 +41,14 @@ def _extraer_anillos(geom_proy) -> list:
 
         # Seleccionar la parte principal en caso de MultiPolygon
         if geom_proy.isMultipart():
-            n_partes = abstract.numGeometries()
+            n_partes  = abstract.numGeometries()
             parte_idx = 0
-            area_max = 0.0
+            area_max  = 0.0
             for i in range(n_partes):
                 parte_geom = QgsGeometry(abstract.geometryN(i).clone())
                 area = parte_geom.area()
                 if area > area_max:
-                    area_max = area
+                    area_max  = area
                     parte_idx = i
             parte = abstract.geometryN(parte_idx)
         else:
@@ -64,7 +69,7 @@ def _extraer_anillos(geom_proy) -> list:
         # Anillos interiores
         n_interiores = parte.numInteriorRings()
         for i in range(n_interiores):
-            ring = parte.interiorRing(i)
+            ring      = parte.interiorRing(i)
             anillo_int = []
             for j in range(ring.numPoints()):
                 pt = ring.pointN(j)
@@ -87,8 +92,9 @@ def validar_feature(feature, crs_capa) -> list:
         problemas.append((NIVEL_CRITICO, "Geometria nula o vacia"))
         return problemas
 
+    # QGIS 4.x: QgsWkbTypes.PolygonGeometry → Qgis.GeometryType.Polygon
     tipo_base = QgsWkbTypes.geometryType(geom.wkbType())
-    if tipo_base != QgsWkbTypes.PolygonGeometry:
+    if tipo_base != Qgis.GeometryType.Polygon:
         tipo_str = QgsWkbTypes.displayString(geom.wkbType())
         problemas.append((NIVEL_CRITICO,
             "La geometria no es un poligono (tipo: " + tipo_str + ")"))
@@ -154,11 +160,9 @@ def validar_feature(feature, crs_capa) -> list:
             " anillo(s) interior(es). "
             "Se procesaran como linderos independientes en TXT y XLSX."))
 
-        # Validar cada anillo interior individualmente
         for idx_anillo, anillo_int in enumerate(anillos[1:], start=1):
             n_int = len(anillo_int)
 
-            # Mínimo de vértices
             n_int_validos = n_int - 1
             if n_int_validos < 3:
                 problemas.append((NIVEL_ERROR,
@@ -166,7 +170,6 @@ def validar_feature(feature, crs_capa) -> list:
                     " tiene solo " + str(n_int_validos) +
                     " vertice(s) unicos; minimo requerido: 3"))
 
-            # Cierre del anillo interior
             if n_int >= 2:
                 p_ini_int = anillo_int[0]
                 p_fin_int = anillo_int[-1]
@@ -176,9 +179,8 @@ def validar_feature(feature, crs_capa) -> list:
                         "Anillo interior N°" + str(idx_anillo) +
                         " no esta cerrado correctamente"))
 
-            # Área mínima del anillo interior
-            geom_int = QgsGeometry.fromPolygonXY([anillo_int])
-            area_int = abs(geom_int.area())
+            geom_int  = QgsGeometry.fromPolygonXY([anillo_int])
+            area_int  = abs(geom_int.area())
             if area_int <= _AREA_MINIMA_M2:
                 problemas.append((NIVEL_ADVERTENCIA,
                     "Anillo interior N°" + str(idx_anillo) +

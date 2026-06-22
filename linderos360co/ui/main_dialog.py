@@ -4,11 +4,11 @@ from qgis.PyQt.QtWidgets import (
     QPushButton, QFileDialog, QLineEdit, QMessageBox,
     QLabel, QProgressDialog, QTabWidget, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QSizePolicy, QTextEdit, QFrame
+    QSizePolicy, QTextEdit, QFrame, QAbstractItemView
 )
 from qgis.PyQt.QtCore import Qt, QSettings
 from qgis.PyQt.QtGui import QPixmap, QFont, QColor
-from qgis.core import QgsProject, QgsWkbTypes
+from qgis.core import QgsProject, QgsWkbTypes, Qgis
 
 try:
     from ..core.excel_generator import OPENPYXL_OK
@@ -83,15 +83,14 @@ class MainDialog(QDialog):
         grp_seleccion = QGroupBox("Predios a procesar")
         layout_sel = QVBoxLayout()
         layout_sel.setSpacing(6)
-        self.lbl_seleccion = QLabel(
-            "Selecciona una capa para continuar."
-        )
+        self.lbl_seleccion = QLabel("Selecciona una capa para continuar.")
         self.lbl_seleccion.setWordWrap(True)
         btn_verificar = QPushButton("Verificar selección")
         btn_verificar.setFixedWidth(160)
         btn_verificar.clicked.connect(self._verificar_seleccion)
         layout_sel.addWidget(self.lbl_seleccion)
-        layout_sel.addWidget(btn_verificar, alignment=Qt.AlignLeft)
+        # PyQt6: Qt.AlignLeft → Qt.AlignmentFlag.AlignLeft
+        layout_sel.addWidget(btn_verificar, alignment=Qt.AlignmentFlag.AlignLeft)
         grp_seleccion.setLayout(layout_sel)
 
         # ── Módulos ───────────────────────────────────────────────────────
@@ -228,7 +227,8 @@ class MainDialog(QDialog):
         btn_logo.clicked.connect(self._seleccionar_logo)
         self.lbl_logo_preview = QLabel()
         self.lbl_logo_preview.setFixedSize(80, 40)
-        self.lbl_logo_preview.setAlignment(Qt.AlignCenter)
+        # PyQt6: Qt.AlignCenter → Qt.AlignmentFlag.AlignCenter
+        self.lbl_logo_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_logo_preview.setStyleSheet(
             "border: 1px solid #ccc; background: #f9f9f9;"
         )
@@ -253,14 +253,16 @@ class MainDialog(QDialog):
         self.tbl_campos_pdf.setHorizontalHeaderLabels(
             ["Activo", "Etiqueta en plano", "Campo de la capa"]
         )
+        # PyQt6: QHeaderView.ResizeToContents → QHeaderView.ResizeMode.ResizeToContents
         self.tbl_campos_pdf.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        # PyQt6: QHeaderView.Stretch → QHeaderView.ResizeMode.Stretch
+        self.tbl_campos_pdf.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
         )
         self.tbl_campos_pdf.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.Stretch
-        )
-        self.tbl_campos_pdf.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.Stretch
+            2, QHeaderView.ResizeMode.Stretch
         )
         self.tbl_campos_pdf.setMinimumHeight(200)
 
@@ -317,7 +319,6 @@ class MainDialog(QDialog):
             "N°", "Marca", "Norte (m)", "Este (m)",
             "Latitud (°)", "Longitud (°)", "Distancia (m)", "Azimut (°)"
         ])
-        # Fila de ejemplo
         datos_ej = [
             ["1", "P1", "1 234 567.8901", "4 789 012.3456",
              "11.123456", "-74.654321", "45.3", "22.4512"],
@@ -327,14 +328,21 @@ class MainDialog(QDialog):
         for r, fila in enumerate(datos_ej):
             for c, val in enumerate(fila):
                 item = QTableWidgetItem(val)
-                item.setFlags(Qt.ItemIsEnabled)
-                item.setTextAlignment(Qt.AlignCenter)
+                # PyQt6: Qt.ItemIsEnabled → Qt.ItemFlag.ItemIsEnabled
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                # PyQt6: Qt.AlignCenter → Qt.AlignmentFlag.AlignCenter
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 tbl_preview.setItem(r, c, item)
 
-        tbl_preview.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # PyQt6: QHeaderView.ResizeToContents → QHeaderView.ResizeMode.ResizeToContents
+        tbl_preview.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
         tbl_preview.verticalHeader().setVisible(False)
-        tbl_preview.setEditTriggers(QTableWidget.NoEditTriggers)
-        tbl_preview.setSelectionMode(QTableWidget.NoSelection)
+        # PyQt6: QTableWidget.NoEditTriggers → QAbstractItemView.EditTrigger.NoEditTriggers
+        tbl_preview.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # PyQt6: QTableWidget.NoSelection → QAbstractItemView.SelectionMode.NoSelection
+        tbl_preview.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         tbl_preview.setFixedHeight(
             tbl_preview.horizontalHeader().height() +
             tbl_preview.rowHeight(0) * 2 + 4
@@ -355,10 +363,10 @@ class MainDialog(QDialog):
         layout.addWidget(grp_info)
 
         # ── Campos para nombre de archivo ─────────────────────────────────
-        # Visible solo cuando el módulo Descripción está desactivado.
         self.grp_xlsx_campos = QGroupBox("Campos para nombre de archivo")
         form_campos = QFormLayout()
-        form_campos.setLabelAlignment(Qt.AlignRight)
+        # PyQt6: Qt.AlignRight → Qt.AlignmentFlag.AlignRight
+        form_campos.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         self.cmb_xlsx_nupre = QComboBox()
         self.cmb_xlsx_fmi   = QComboBox()
         self.cmb_xlsx_nupre.setToolTip("NUPRE / Cédula catastral del predio")
@@ -368,7 +376,6 @@ class MainDialog(QDialog):
         self.grp_xlsx_campos.setLayout(form_campos)
         layout.addWidget(self.grp_xlsx_campos)
 
-        # Nota cuando módulo Descripción está activo
         self.lbl_xlsx_campos_info = QLabel(
             "ℹ  Los campos NUPRE y FMI se toman del módulo Descripción."
         )
@@ -379,7 +386,6 @@ class MainDialog(QDialog):
         self.lbl_xlsx_campos_info.setVisible(False)
         layout.addWidget(self.lbl_xlsx_campos_info)
 
-        # Aviso si openpyxl no está disponible
         self.lbl_xlsx_aviso = QLabel(
             "⚠  openpyxl no está instalado. Ejecuta en la consola Python de QGIS:\n"
             "import subprocess; subprocess.run(['pip', 'install', 'openpyxl',"
@@ -409,7 +415,8 @@ class MainDialog(QDialog):
         for layer in QgsProject.instance().mapLayers().values():
             if not hasattr(layer, 'geometryType'):
                 continue
-            if layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+            # QGIS 4.x: QgsWkbTypes.PolygonGeometry → Qgis.GeometryType.Polygon
+            if layer.geometryType() == Qgis.GeometryType.Polygon:
                 self.cmb_capa.addItem(layer.name(), layer.id())
         self.cmb_capa.blockSignals(False)
 
@@ -465,7 +472,6 @@ class MainDialog(QDialog):
         self._actualizar_tooltip_generar()
 
     def _actualizar_tooltip_generar(self):
-        """Actualiza el tooltip del botón Generar con el estado actual."""
         capa = self._capa_seleccionada()
         modulo = (
             self.chk_mod_txt.isChecked() or
@@ -603,9 +609,7 @@ class MainDialog(QDialog):
         if layer is None:
             layer = self._capa_seleccionada()
         if layer is None:
-            self.lbl_seleccion.setText(
-                "Selecciona una capa para continuar."
-            )
+            self.lbl_seleccion.setText("Selecciona una capa para continuar.")
             return
         n = layer.selectedFeatureCount()
         if n == 0:
@@ -614,13 +618,9 @@ class MainDialog(QDialog):
                 "selecciona uno o más polígonos en QGIS."
             )
         elif n == 1:
-            self.lbl_seleccion.setText(
-                "✓  1 predio seleccionado."
-            )
+            self.lbl_seleccion.setText("✓  1 predio seleccionado.")
         else:
-            self.lbl_seleccion.setText(
-                f"✓  {n} predios seleccionados."
-            )
+            self.lbl_seleccion.setText(f"✓  {n} predios seleccionados.")
 
     def _verificar_seleccion(self):
         layer = self._capa_seleccionada()
@@ -649,14 +649,18 @@ class MainDialog(QDialog):
             pixmap = QPixmap(ruta)
             if not pixmap.isNull():
                 self.lbl_logo_preview.setPixmap(
-                    pixmap.scaled(80, 40, Qt.KeepAspectRatio,
-                                  Qt.SmoothTransformation)
+                    pixmap.scaled(
+                        80, 40,
+                        # PyQt6: Qt.KeepAspectRatio → Qt.AspectRatioMode.KeepAspectRatio
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        # PyQt6: Qt.SmoothTransformation → Qt.TransformationMode.SmoothTransformation
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
                 )
 
     # ================================================================== QSettings
 
     def _guardar_configuracion(self):
-        """Persiste la configuración de la pestaña Inicio en QSettings."""
         s = QSettings()
         s.setValue(f"{_SETTINGS_KEY}/ruta_salida", self.txt_ruta.text())
         s.setValue(f"{_SETTINGS_KEY}/generar_txt",  self.chk_mod_txt.isChecked())
@@ -667,13 +671,11 @@ class MainDialog(QDialog):
             s.setValue(f"{_SETTINGS_KEY}/capa_id", capa_id)
 
     def _restaurar_configuracion(self):
-        """Restaura la última configuración guardada en QSettings."""
         s = QSettings()
         ruta = s.value(f"{_SETTINGS_KEY}/ruta_salida", "")
         if ruta:
             self.txt_ruta.setText(ruta)
 
-        # Módulos — blockSignals para evitar reconstruir tabs antes de tiempo
         self.chk_mod_txt.blockSignals(True)
         self.chk_mod_pdf.blockSignals(True)
         self.chk_mod_xlsx.blockSignals(True)
@@ -690,7 +692,6 @@ class MainDialog(QDialog):
         self.chk_mod_pdf.blockSignals(False)
         self.chk_mod_xlsx.blockSignals(False)
 
-        # Reconstruir tabs si hay módulos activos
         if any([
             self.chk_mod_txt.isChecked(),
             self.chk_mod_pdf.isChecked(),
@@ -698,7 +699,6 @@ class MainDialog(QDialog):
         ]):
             self._actualizar_pestanas()
 
-        # Restaurar capa seleccionada
         capa_id = s.value(f"{_SETTINGS_KEY}/capa_id", "")
         if capa_id:
             idx = self.cmb_capa.findData(capa_id)
@@ -737,16 +737,15 @@ class MainDialog(QDialog):
                 self,
                 "Problemas topológicos detectados",
                 resumen,
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                # PyQt6: QMessageBox.Yes/No → QMessageBox.StandardButton.Yes/No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if respuesta == QMessageBox.No:
+            if respuesta == QMessageBox.StandardButton.No:
                 return
 
-        # ── Guardar configuración antes de procesar ────────────────────────
         self._guardar_configuracion()
 
-        # ── Procesamiento con progreso detallado ──────────────────────────
         productos = sum([
             config["generar_txt"],
             config["generar_pdf"],
@@ -758,7 +757,8 @@ class MainDialog(QDialog):
             "Iniciando...", "Cancelar", 0, total_pasos, self
         )
         progreso.setWindowTitle("Generando archivos")
-        progreso.setWindowModality(Qt.WindowModal)
+        # PyQt6: Qt.WindowModal → Qt.WindowModality.WindowModal
+        progreso.setWindowModality(Qt.WindowModality.WindowModal)
         progreso.setMinimumDuration(0)
         progreso.setMinimumWidth(400)
         progreso.show()
@@ -828,24 +828,16 @@ class MainDialog(QDialog):
 
         progreso.setValue(total_pasos)
 
-        # ── Resultado ──────────────────────────────────────────────────────
         self._mostrar_resultado(generados, errores, config["ruta_salida"])
 
     def _mostrar_resultado(self, generados: list, errores: list, ruta_salida: str):
-        """
-        Muestra el resumen de la generación.
-        Si hay errores, ofrece un diálogo con log exportable.
-        """
         if not generados and not errores:
-            # Cancelado antes de procesar cualquier archivo
             return
 
         if errores and not generados:
-            # Solo errores — muestra log directamente
             self._mostrar_log_errores(errores)
             return
 
-        # Construir mensaje de resumen
         partes_ok = []
         n_txt  = sum(1 for r in generados if r.endswith(".txt"))
         n_pdf  = sum(1 for r in generados if r.endswith(".pdf"))
@@ -861,17 +853,20 @@ class MainDialog(QDialog):
         if errores:
             dlg = QMessageBox(self)
             dlg.setWindowTitle("Generación completada con errores")
-            dlg.setIcon(QMessageBox.Warning)
+            # PyQt6: QMessageBox.Warning → QMessageBox.Icon.Warning
+            dlg.setIcon(QMessageBox.Icon.Warning)
             dlg.setText(msg)
-            dlg.addButton("Ver errores", QMessageBox.ActionRole)
-            dlg.addButton("Cerrar", QMessageBox.AcceptRole)
-            if dlg.exec_() == 0:  # "Ver errores"
+            # PyQt6: QMessageBox.ActionRole → QMessageBox.ButtonRole.ActionRole
+            dlg.addButton("Ver errores", QMessageBox.ButtonRole.ActionRole)
+            # PyQt6: QMessageBox.AcceptRole → QMessageBox.ButtonRole.AcceptRole
+            dlg.addButton("Cerrar", QMessageBox.ButtonRole.AcceptRole)
+            # PyQt6: exec_() → exec()
+            if dlg.exec() == 0:
                 self._mostrar_log_errores(errores)
         else:
             QMessageBox.information(self, "Generación completada", msg)
 
     def _mostrar_log_errores(self, errores: list):
-        """Diálogo con log de errores exportable a .txt."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Log de errores")
         dlg.setMinimumSize(520, 340)
@@ -912,7 +907,8 @@ class MainDialog(QDialog):
         layout.addLayout(layout_btns)
 
         dlg.setLayout(layout)
-        dlg.exec_()
+        # PyQt6: exec_() → exec()
+        dlg.exec()
 
     # ================================================================== Helpers
 
@@ -946,7 +942,6 @@ class MainDialog(QDialog):
             "generar_xlsx": self.chk_mod_xlsx.isChecked(),
         }
 
-        # ── Módulo Descripción TXT ─────────────────────────────────────────
         if self.tab_txt is not None:
             config.update({
                 "campo_nupre":      self.cmb_nupre.currentData(),
@@ -970,7 +965,6 @@ class MainDialog(QDialog):
                 "es_urbano":        False,
             })
 
-        # ── Módulo Plano cartográfico ──────────────────────────────────────
         if self.tab_pdf is not None:
             config.update({
                 "pdf_empresa":   self.txt_empresa.text().strip(),
@@ -990,9 +984,6 @@ class MainDialog(QDialog):
                 "pdf_campos":    [],
             })
 
-        # ── Módulo Tabla de coordenadas ────────────────────────────────────
-        # Si Descripción está activo, campo_nupre y campo_fmi ya están en config.
-        # excel_generator los usa directamente con prioridad sobre los propios.
         if self.tab_xlsx is not None and not config["generar_txt"]:
             config.update({
                 "campo_nupre_xlsx": self.cmb_xlsx_nupre.currentData(),

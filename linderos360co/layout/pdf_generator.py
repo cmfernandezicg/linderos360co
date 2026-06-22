@@ -11,17 +11,26 @@ Estrategia:
   6. Reconstruir leyenda_convenciones
   7. Exportar PDF
   8. Limpiar (variables y capas temporales)
+
+QGIS 4.x / PyQt6 — Cambios respecto a v1.x:
+  - QIODevice.ReadOnly → QIODevice.OpenModeFlag.ReadOnly
+  - QgsUnitTypes.DistanceMeters → Qgis.DistanceUnit.Meters
+  - QgsUnitTypes.LayoutMillimeters → Qgis.LayoutUnit.Millimeters
+  - QgsLayoutPoint/QgsLayoutSize: unidad como Qgis.LayoutUnit.Millimeters
 """
 
 import os
+import math as _math
 from datetime import datetime
 
 from qgis.core import (
+    Qgis,
     QgsProject, QgsPrintLayout, QgsReadWriteContext,
     QgsLayoutExporter, QgsLayoutItemMap,
     QgsLayoutItemScaleBar, QgsLayoutItemPicture,
+    QgsLayoutPoint, QgsLayoutSize,
     QgsCoordinateReferenceSystem, QgsCoordinateTransform,
-    QgsGeometry, QgsRectangle, QgsUnitTypes,
+    QgsGeometry, QgsRectangle,
     QgsRasterLayer, QgsVectorLayer, QgsFeature,
 )
 from qgis.PyQt.QtCore import QFile, QIODevice
@@ -31,12 +40,11 @@ from .capas_temporales import preparar_capas_layout, construir_leyenda, limpiar_
 
 # ------------------------------------------------------------------ Constantes
 
-_CRS_STR       = "EPSG:9377"
+_CRS_STR        = "EPSG:9377"
 _RUTA_PLANTILLA = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
     "resources", "plantilla_linderos.qpt"
 )
-
 
 _VALORES_NULOS = {"", "NULL", "None", "null", "nan", "NaN", "none"}
 
@@ -110,7 +118,8 @@ def _cargar_plantilla(proyecto: QgsProject) -> QgsPrintLayout:
 
     doc = QDomDocument()
     archivo = QFile(_RUTA_PLANTILLA)
-    if not archivo.open(QIODevice.ReadOnly):
+    # QGIS 4.x / PyQt6: QIODevice.ReadOnly → QIODevice.OpenModeFlag.ReadOnly
+    if not archivo.open(QIODevice.OpenModeFlag.ReadOnly):
         raise IOError(f"No se pudo abrir la plantilla: {_RUTA_PLANTILLA}")
     doc.setContent(archivo)
     archivo.close()
@@ -119,7 +128,6 @@ def _cargar_plantilla(proyecto: QgsProject) -> QgsPrintLayout:
     layout.setName("linderos_layout_temp")
     layout.initializeDefaults()
 
-    # API correcta en QGIS 3.x: readXml sobre el nodo <Layout>
     nodo_layout = doc.elementsByTagName("Layout").at(0).toElement()
     contexto    = QgsReadWriteContext()
     ok          = layout.readXml(nodo_layout, doc, contexto)
@@ -139,14 +147,9 @@ def _construir_variables(feature, config: dict,
                           area_m2: float, escala: float) -> dict:
     """
     Construye el dict completo de variables @linderos_* para el proyecto.
-
-    El bloque de datos del predio se construye como texto dinámico
-    en @linderos_datos_predio — omite líneas sin valor para que no
-    aparezcan en el plano cuando el usuario no mapeó ese campo.
     """
     variables = {}
 
-    # Variables fijas desde config
     variables["linderos_empresa"]   = config.get("pdf_empresa", "").strip()  or "Sin información"
     variables["linderos_titulo"]    = config.get("pdf_titulo", "").strip()   or "Sin información"
     variables["linderos_elaborado"] = config.get("pdf_elaborado", "").strip() or "Sin información"
@@ -155,9 +158,7 @@ def _construir_variables(feature, config: dict,
     variables["linderos_escala"]    = f"1:{int(escala):,}".replace(",", ".")
     variables["linderos_area"]      = _formato_area(area_m2, config.get("es_urbano", False))
 
-    # Construir bloque datos predio dinámico — solo líneas con valor real
     lineas = []
-
     for campo_cfg in config.get("pdf_campos", []):
         etiqueta = campo_cfg.get("etiqueta", "").strip()
         campo    = campo_cfg.get("campo")
@@ -167,20 +168,14 @@ def _construir_variables(feature, config: dict,
         if valor and valor != "Sin información":
             lineas.append(f"{etiqueta}: {valor}")
 
-    # Área siempre se incluye al final
     lineas.append(f"Área: {variables['linderos_area']}")
-
     variables["linderos_datos_predio"] = "\n".join(lineas)
 
     return variables
 
 
 def _inyectar_variables(proyecto: QgsProject, variables: dict) -> dict:
-    """
-    Inyecta variables como custom variables del proyecto.
-    Retorna las variables previas para restaurarlas al finalizar.
-    """
-    previas = proyecto.customVariables()
+    previas  = proyecto.customVariables()
     actuales = dict(previas)
     actuales.update(variables)
     proyecto.setCustomVariables(actuales)
@@ -213,13 +208,10 @@ def _configurar_mapa_principal(layout, capas: dict,
     mapa.zoomToExtent(bbox_con_margen)
     mapa.refresh()
 
-    # Ajustar intervalo del grid según extensión real del mapa
-    # Objetivo: entre 3 y 5 líneas de grid en el ancho visible
     ancho_m    = bbox_con_margen.width()
     intervalos = [5, 10, 20, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000]
     intervalo  = next((v for v in intervalos if 3 <= ancho_m / v <= 5), None)
     if intervalo is None:
-        # Fallback: calcular directamente
         intervalo = 10 ** len(str(int(ancho_m / 4)))
 
     grids = mapa.grids()
@@ -249,14 +241,10 @@ def _crear_capa_basemap() -> QgsRasterLayer:
     return capa
 
 
-
 def _configurar_mapa_localizacion(layout, capas: dict,
                                    bbox_predio: object) -> list:
     """
     Mapa de localización con basemap OSM centrado en el predio.
-    No se usan capas vectoriales — solo el basemap con sus propios textos
-    de referencia (nombres de vías, localidades, etc.).
-    El overview dibuja el rectángulo del mapa principal sobre el basemap.
     """
     mapa_loc = layout.itemById("mapa_localizacion")
     if mapa_loc is None:
@@ -275,10 +263,8 @@ def _configurar_mapa_localizacion(layout, capas: dict,
     mapa_loc.setKeepLayerSet(True)
     mapa_loc.setKeepLayerStyles(True)
 
-    # Zoom centrado en el predio a escala veredal (~1:100.000)
-    from qgis.core import QgsRectangle
     centro   = bbox_predio.center()
-    radio    = 3000.0  # metros
+    radio    = 3000.0
     bbox_loc = QgsRectangle(
         centro.x() - radio, centro.y() - radio,
         centro.x() + radio, centro.y() + radio
@@ -289,20 +275,18 @@ def _configurar_mapa_localizacion(layout, capas: dict,
     return capas_a_limpiar
 
 
-import math as _math
-
 def _configurar_barra_escala(layout, mapa: QgsLayoutItemMap) -> None:
     """
     Vincula la barra de escala al mapa principal y calcula unitsPerSegment
     para que la barra quepa dentro del ancho del item en la plantilla.
-    Usa floor() en lugar de round() para garantizar que nunca desborde.
     """
     barra = layout.itemById("barra_escala")
     if barra is None:
         return
 
     barra.setLinkedMap(mapa)
-    barra.setUnits(QgsUnitTypes.DistanceMeters)
+    # QGIS 4.x: QgsUnitTypes.DistanceMeters → Qgis.DistanceUnit.Meters
+    barra.setUnits(Qgis.DistanceUnit.Meters)
 
     escala_real = mapa.scale()
     if escala_real <= 0:
@@ -317,19 +301,18 @@ def _configurar_barra_escala(layout, mapa: QgsLayoutItemMap) -> None:
     unidades_seg = (ANCHO_MAX_MM * escala_real) / (n_segmentos * 1000)
     if unidades_seg > 0:
         magnitud     = 10 ** (len(str(int(unidades_seg))) - 1)
-        # floor garantiza que el valor redondeado nunca supere el ancho máximo
         unidades_seg = max(_math.floor(unidades_seg / magnitud) * magnitud, 1)
         barra.setUnitsPerSegment(unidades_seg)
 
-    from qgis.core import QgsLayoutPoint, QgsLayoutSize
     PANEL_CX = 244.0
     BARRA_Y  = 109.239
     barra_x  = PANEL_CX - (ANCHO_MAX_MM / 2)
+    # QGIS 4.x: QgsUnitTypes.LayoutMillimeters → Qgis.LayoutUnit.Millimeters
     barra.attemptMove(
-        QgsLayoutPoint(barra_x, BARRA_Y, QgsUnitTypes.LayoutMillimeters)
+        QgsLayoutPoint(barra_x, BARRA_Y, Qgis.LayoutUnit.Millimeters)
     )
     barra.attemptResize(
-        QgsLayoutSize(ANCHO_MAX_MM, 9.175, QgsUnitTypes.LayoutMillimeters)
+        QgsLayoutSize(ANCHO_MAX_MM, 9.175, Qgis.LayoutUnit.Millimeters)
     )
     barra.refresh()
 
@@ -343,8 +326,7 @@ def _configurar_logo(layout, config: dict) -> None:
     ruta_logo = config.get("pdf_logo", "").strip()
     if ruta_logo and os.path.exists(ruta_logo):
         logo.setPicturePath(ruta_logo)
-        logo.setResizeMode(QgsLayoutItemPicture.Zoom)
-        # Centrar el contenido de la imagen dentro del frame
+        logo.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
         logo.setPictureAnchor(4)
 
 
@@ -354,7 +336,7 @@ def _exportar(layout, ruta_pdf: str) -> None:
     exporter  = QgsLayoutExporter(layout)
     settings  = QgsLayoutExporter.PdfExportSettings()
     resultado = exporter.exportToPdf(ruta_pdf, settings)
-    if resultado != QgsLayoutExporter.Success:
+    if resultado != QgsLayoutExporter.ExportResult.Success:
         raise RuntimeError(
             f"Error al exportar PDF. Código: {resultado}\n"
             f"Ruta: {ruta_pdf}"
@@ -369,7 +351,7 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
 
     Args:
         feature: QgsFeature del predio a procesar
-        config:  dict de configuración del plugin (ver contexto §5.7)
+        config:  dict de configuración del plugin
         iface:   QgisInterface (no usado directamente, reservado)
 
     Returns:
@@ -408,13 +390,14 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
     # 4. Cargar plantilla
     layout = _cargar_plantilla(proyecto)
 
-    # 5. Configurar mapa principal (necesario antes de leer la escala)
+    # 5. Configurar mapa principal
     mapa = _configurar_mapa_principal(layout, capas, bbox)
 
-    # 6. Variables de proyecto (escala disponible tras zoomToExtent)
+    # 6. Variables de proyecto
     variables = _construir_variables(feature, config, area_m2, mapa.scale())
     previas   = _inyectar_variables(proyecto, variables)
 
+    capas_loc_tmp = []
     try:
         # 7. Resto de items del layout
         capas_loc_tmp = _configurar_mapa_localizacion(layout, capas, bbox)
@@ -429,7 +412,6 @@ def generar_pdf(feature, config: dict, iface=None) -> str:
         # 9. Limpieza garantizada aunque falle la exportación
         _restaurar_variables(proyecto, previas)
         limpiar_capas_temporales()
-        # Limpiar capas temporales del mapa de localización
         for capa_tmp in capas_loc_tmp:
             try:
                 proyecto.removeMapLayer(capa_tmp.id())
